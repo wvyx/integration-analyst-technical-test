@@ -81,4 +81,4 @@ Dengan penerapan komponen tersebut, proses integrasi antar-sistem diharapkan dap
 
 Berikut merupakan visualisasi hubungan antar-komponen berdasarkan interpretasi terhadap diagram yang diberikan.
 
-![Diagram Arsitektur Integrasi](diagrams/diagram-arsitektur-integrasi.png)
+![Diagram Arsitektur Integrasi](diagram-arsitektur-integrasi.png)
