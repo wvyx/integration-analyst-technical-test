@@ -82,3 +82,109 @@ Dengan penerapan komponen tersebut, proses integrasi antar-sistem diharapkan dap
 Berikut merupakan visualisasi hubungan antar-komponen berdasarkan interpretasi terhadap diagram yang diberikan.
 
 ![Diagram Arsitektur Integrasi](diagram-arsitektur-integrasi.png)
+
+---
+
+## Soal 2 – Rancangan Spesifikasi API
+
+Sebagai implementasi dari standar **OpenAPI 3.1** pada diagram arsitektur, berikut adalah rancangan spesifikasi REST API untuk fitur inti pinjaman online, yaitu **Pengajuan Pinjaman Baru (*Submit Loan Application*)** yang menghubungkan aplikasi mobile dengan **Core Banking System**.
+
+> File spesifikasi lengkap dalam format YAML dapat diakses pada repository ini di: [`specs/loan-application-openapi-3.1.yaml`](./specs/loan-application-openapi-3.1.yaml)
+
+### 1. Informasi Umum Endpoint
+
+- **Nama Fitur:** Pengajuan Pinjaman Baru (*Submit Loan Application*)
+- **Base URL:** `https://api.ptxyz-fintech.co.id/api/v1`
+- **Endpoint:** `/loans/applications`
+- **HTTP Method:** `POST`
+- **Format Data:** `application/json` (HTTPS / TLS 1.3)
+
+### 2. Spesifikasi HTTP Headers
+
+| Header | Tipe | Wajib | Contoh Nilai | Keterangan |
+| :--- | :--- | :---: | :--- | :--- |
+| `Authorization` | String | Ya | `Bearer eyJhbGciOiJIUzI1Ni...` | Token autentikasi nasabah (OAuth 2.0 / JWT). |
+| `Content-Type` | String | Ya | `application/json` | Format *payload* pertukaran data. |
+| `Idempotency-Key` | String (UUID) | Ya | `8f14e45f-ea9b-41a2-9c12-112233445566` | Mencegah duplikasi pengajuan/pencairan jika terjadi *retry* jaringan. |
+| `X-Correlation-ID` | String (UUID) | Ya | `corr-9981-44ab-812c-77889900aabb` | ID pelacakan transaksi *end-to-end* untuk kebutuhan monitoring di Kibana. |
+| `X-Signature` | String | Ya | `a94a8fe5ccb19ba61c4c0873d391e987...` | Validasi integritas *payload* menggunakan HMAC-SHA256. |
+
+### 3. Request & Response Payload
+
+**A. Contoh Request Body (`application/json`)**
+
+```json
+{
+  "customerId": "CUST-20261123-00981",
+  "loanDetails": {
+    "productCode": "PINJOL-REG-01",
+    "requestedAmount": 5000000,
+    "currency": "IDR",
+    "tenorMonths": 6,
+    "interestRatePercent": 2.5,
+    "loanPurpose": "MODAL_USAHA"
+  },
+  "disbursementAccount": {
+    "bankCode": "008",
+    "bankName": "Bank Mandiri",
+    "accountNumber": "1330012345678",
+    "accountHolderName": "WELLY WIBOWO"
+  },
+  "consent": {
+    "tncAgreed": true,
+    "tncVersion": "v2.4",
+    "agreedTimestamp": "2026-11-23T08:45:00+07:00"
+  }
+}
+```
+
+**B. Contoh Response Sukses (`201 Created`)**
+
+```json
+{
+  "status": "SUCCESS",
+  "responseCode": "20100",
+  "message": "Pengajuan pinjaman berhasil diproses",
+  "correlationId": "corr-9981-44ab-812c-77889900aabb",
+  "timestamp": "2026-11-23T08:45:02+07:00",
+  "data": {
+    "applicationId": "APP-20261123-77412",
+    "coreLoanAccountNumber": "LN-88900112233",
+    "applicationStatus": "APPROVED_FOR_DISBURSEMENT",
+    "approvedAmount": 5000000,
+    "adminFee": 150000,
+    "netDisbursementAmount": 4850000,
+    "monthlyInstallment": 958333,
+    "firstDueDate": "2026-12-23"
+  }
+}
+```
+
+**C. Contoh Response Gagal Validasi Bisnis (`422 Unprocessable Entity`)**
+
+```json
+{
+  "status": "FAILED",
+  "responseCode": "42201",
+  "message": "Nominal pengajuan melebihi sisa limit kredit nasabah",
+  "correlationId": "corr-9981-44ab-812c-77889900aabb",
+  "timestamp": "2026-11-23T08:45:01+07:00",
+  "errors": [
+    {
+      "field": "loanDetails.requestedAmount",
+      "reason": "Maksimal limit kredit yang tersedia saat ini adalah Rp 3.000.000"
+    }
+  ]
+}
+```
+
+### 4. Standar Error Handling (HTTP Status Code)
+
+| HTTP Status | Kode Internal | Kondisi Penanganan |
+| :--- | :--- | :--- |
+| `201 Created` | `20100` | Pengajuan berhasil diproses dan fasilitas pinjaman tercatat di Core Banking. |
+| `400 Bad Request` | `40001` | Format JSON tidak valid atau parameter wajib tidak dikirim. |
+| `401 Unauthorized` | `40100` | Token JWT tidak valid/kedaluwarsa atau `X-Signature` tidak cocok. |
+| `409 Conflict` | `40901` | Duplikasi transaksi terdeteksi (`Idempotency-Key` sudah pernah diproses). |
+| `422 Unprocessable Entity` | `42201` | Gagal validasi aturan bisnis (misal: limit kredit kurang atau skor kredit tidak memenuhi syarat). |
+| `504 Gateway Timeout` | `50401` | Koneksi menuju Core Banking System mengalami *timeout*. |
